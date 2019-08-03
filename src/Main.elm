@@ -1,7 +1,7 @@
 module Main exposing (main)
 
 import Browser
-import Canvas exposing (Point, Renderable)
+import Canvas
 import Canvas.Settings exposing (fill, stroke)
 import Canvas.Settings.Line exposing (lineWidth)
 import Color exposing (Color)
@@ -13,6 +13,7 @@ import Html.Events.Extra.Mouse exposing (onClick)
 import Html.Styled exposing (Html, div, fromUnstyled, toUnstyled)
 import Html.Styled.Attributes exposing (css)
 import LineSegment2d exposing (fromEndpoints, intersectionPoint)
+import List exposing (concat, filter, map, take)
 import List.Extra exposing (find, groupsOf, groupsOfWithStep)
 import Maybe.Extra exposing (isJust, unpack)
 import Point2d exposing (Point2d, coordinates)
@@ -90,8 +91,11 @@ init _ =
 randomCoord : Float -> Random.Generator Float
 randomCoord range =
     let
+        padding =
+            30
+
         offset =
-            toFloat <| min width height // 2 - 30
+            toFloat <| min width height // 2 - padding
     in
     Random.float (range - offset) (range + offset)
 
@@ -120,15 +124,15 @@ randomTriangles =
 
 linkTriangle : List NodeID -> List Link
 linkTriangle ids =
-    (ids ++ List.take 1 ids)
+    (ids ++ take 1 ids)
         |> groupsOfWithStep 2 1
-        |> List.map (toTuple >> newLink)
+        |> map (toTuple >> newLink)
 
 
 randomLinks : Random.Generator Links
 randomLinks =
     randomTriangles
-        |> Random.map (List.map linkTriangle >> List.concat)
+        |> Random.map (map linkTriangle >> concat)
 
 
 randomState : Random.Generator InitialState
@@ -208,7 +212,7 @@ type alias InitialState =
 
 type Msg
     = Init InitialState
-    | Click Point
+    | Click ( Float, Float )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -303,7 +307,7 @@ calculateCrossing nodeDict links =
             v11 == v21 || v11 == v22 || v12 == v21 || v12 == v22
 
         otherLinks link =
-            List.filter (shareVertex link >> not) links
+            filter (shareVertex link >> not) links
 
         segment =
             fromEndpoints << linkPoints nodeDict
@@ -311,13 +315,13 @@ calculateCrossing nodeDict links =
         crosses l1 l2 =
             isJust <| intersectionPoint (segment l1) (segment l2)
     in
-    links
-        |> List.map
-            (\link ->
-                List.any (crosses link) (otherLinks link)
-                    |> not
-                    |> setClear link
-            )
+    map
+        (\link ->
+            List.any (crosses link) (otherLinks link)
+                |> not
+                |> setClear link
+        )
+        links
 
 
 fromPoints : List Point2d -> Nodes
@@ -365,14 +369,14 @@ line ( p1, p2 ) =
         [ Canvas.lineTo (coordinates p2) ]
 
 
-renderNodeType : List Node -> Color -> Renderable
+renderNodeType : List Node -> Color -> Canvas.Renderable
 renderNodeType nodes c =
     nodes
-        |> List.map (.point >> dot)
+        |> map (.point >> dot)
         |> Canvas.shapes [ fill c ]
 
 
-renderNodes : Nodes -> List Renderable
+renderNodes : Nodes -> List Canvas.Renderable
 renderNodes nodes =
     nodes
         |> Dict.values
@@ -395,17 +399,17 @@ linkPoints nodes { vertices } =
         |> Tuple.mapBoth .point .point
 
 
-renderLinkType : Color -> Nodes -> Links -> Renderable
+renderLinkType : Color -> Nodes -> Links -> Canvas.Renderable
 renderLinkType c nodes links =
     links
-        |> List.map (linkPoints nodes >> line)
+        |> map (linkPoints nodes >> line)
         |> Canvas.shapes
             [ stroke c
             , lineWidth 3
             ]
 
 
-renderLinks : Nodes -> Links -> List Renderable
+renderLinks : Nodes -> Links -> List Canvas.Renderable
 renderLinks nodes links =
     links
         |> List.partition .clear
@@ -416,21 +420,21 @@ renderLinks nodes links =
            )
 
 
-background : Renderable
-background =
+field : Canvas.Renderable
+field =
     Canvas.shapes
         [ fill <| color theme.field ]
         [ Canvas.rect ( 0, 0 ) (toFloat width) (toFloat height) ]
 
 
-canvas : List (List Renderable) -> Html Msg
+canvas : List (List Canvas.Renderable) -> Html Msg
 canvas renderables =
     fromUnstyled <|
         Canvas.toHtml
             ( width, height )
             [ onClick (.offsetPos >> Click)
             ]
-            (background :: List.concat renderables)
+            (field :: concat renderables)
 
 
 theme : { background : Css.Color, field : Css.Color, red : Css.Color, green : Css.Color, blue : Css.Color }
@@ -481,7 +485,7 @@ view { nodes, links, solved } =
 document : Model -> Browser.Document Msg
 document model =
     Browser.Document "Leylines" <|
-        List.map toUnstyled
+        map toUnstyled
             [ Css.Global.global
                 [ Css.Global.body
                     [ Css.backgroundColor theme.background ]
