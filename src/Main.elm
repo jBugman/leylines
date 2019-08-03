@@ -2,14 +2,16 @@ module Main exposing (main)
 
 import Browser
 import Canvas exposing (Point, Renderable)
-import Canvas.Settings
-import Canvas.Settings.Line
+import Canvas.Settings exposing (fill, stroke)
+import Canvas.Settings.Line exposing (lineWidth)
 import Color exposing (Color)
+import Css exposing (hex)
+import Css.Global
 import Debug exposing (log)
 import Dict exposing (Dict)
-import Html exposing (Html, div)
-import Html.Attributes exposing (class)
 import Html.Events.Extra.Mouse exposing (onClick)
+import Html.Styled exposing (Html, div, fromUnstyled, toUnstyled)
+import Html.Styled.Attributes exposing (css)
 import LineSegment2d exposing (fromEndpoints, intersectionPoint)
 import List.Extra exposing (find, groupsOf, groupsOfWithStep)
 import Maybe.Extra exposing (isJust, unpack)
@@ -20,7 +22,7 @@ import Random.List
 
 main : Program () Model Msg
 main =
-    Browser.element { init = init, update = update, view = view, subscriptions = \_ -> Sub.none }
+    Browser.document { init = init, update = update, view = document, subscriptions = \_ -> Sub.none }
 
 
 
@@ -71,6 +73,7 @@ type alias Links =
 type alias Model =
     { nodes : Nodes
     , links : Links
+    , solved : Bool
     }
 
 
@@ -78,24 +81,10 @@ init : () -> ( Model, Cmd Msg )
 init _ =
     ( { nodes = Dict.empty
       , links = []
+      , solved = False
       }
     , Random.generate Init randomState
     )
-
-
-clearColor : Color
-clearColor =
-    Color.lightBlue
-
-
-crossedColor : Color
-crossedColor =
-    Color.lightRed
-
-
-activeColor : Color
-activeColor =
-    Color.lightGreen
 
 
 randomCoord : Float -> Random.Generator Float
@@ -241,10 +230,15 @@ update msg model =
 
 
 updateModel : Model -> Links -> Nodes -> Model
-updateModel model links nodes =
+updateModel model ls nodes =
+    let
+        links =
+            calculateCrossing nodes ls
+    in
     { model
         | nodes = nodes
-        , links = calculateCrossing nodes links
+        , links = links
+        , solved = List.all .clear links
     }
 
 
@@ -354,6 +348,11 @@ findNodeID predicate =
 -- VIEW
 
 
+color : Css.Color -> Color
+color { red, green, blue } =
+    Color.rgb255 red green blue
+
+
 dot : Point2d -> Canvas.Shape
 dot point =
     Canvas.circle (coordinates point) radius
@@ -367,10 +366,10 @@ line ( p1, p2 ) =
 
 
 renderNodeType : List Node -> Color -> Renderable
-renderNodeType nodes color =
+renderNodeType nodes c =
     nodes
         |> List.map (.point >> dot)
-        |> Canvas.shapes [ Canvas.Settings.fill color ]
+        |> Canvas.shapes [ fill c ]
 
 
 renderNodes : Nodes -> List Renderable
@@ -382,9 +381,9 @@ renderNodes nodes =
                 rest
                     |> List.partition .clear
                     |> (\( clear, crossed ) ->
-                            [ renderNodeType active activeColor
-                            , renderNodeType clear clearColor
-                            , renderNodeType crossed crossedColor
+                            [ renderNodeType active <| color theme.green
+                            , renderNodeType clear <| color theme.blue
+                            , renderNodeType crossed <| color theme.red
                             ]
                        )
            )
@@ -397,12 +396,12 @@ linkPoints nodes { vertices } =
 
 
 renderLinkType : Color -> Nodes -> Links -> Renderable
-renderLinkType color nodes links =
+renderLinkType c nodes links =
     links
         |> List.map (linkPoints nodes >> line)
         |> Canvas.shapes
-            [ Canvas.Settings.stroke color
-            , Canvas.Settings.Line.lineWidth 3
+            [ stroke c
+            , lineWidth 3
             ]
 
 
@@ -411,8 +410,8 @@ renderLinks nodes links =
     links
         |> List.partition .clear
         |> (\( clear, rest ) ->
-                [ renderLinkType clearColor nodes clear
-                , renderLinkType crossedColor nodes rest
+                [ renderLinkType (color theme.blue) nodes clear
+                , renderLinkType (color theme.red) nodes rest
                 ]
            )
 
@@ -420,25 +419,72 @@ renderLinks nodes links =
 background : Renderable
 background =
     Canvas.shapes
-        [ Canvas.Settings.fill <| Color.rgb255 0xF5 0xF5 0xF5 ]
+        [ fill <| color theme.field ]
         [ Canvas.rect ( 0, 0 ) (toFloat width) (toFloat height) ]
 
 
-canvas : List Renderable -> Html Msg
-canvas =
-    (::) background
-        >> Canvas.toHtml ( width, height )
-            [ class "canvas"
-            , onClick (.offsetPos >> Click)
+canvas : List (List Renderable) -> Html Msg
+canvas renderables =
+    fromUnstyled <|
+        Canvas.toHtml
+            ( width, height )
+            [ onClick (.offsetPos >> Click)
             ]
+            (background :: List.concat renderables)
+
+
+theme : { background : Css.Color, field : Css.Color, red : Css.Color, green : Css.Color, blue : Css.Color }
+theme =
+    { background = hex "272424"
+    , field = hex "FFFDFD"
+    , green = hex "87CF3E"
+    , red = hex "DB4C2E"
+    , blue = hex "56ADF4"
+    }
+
+
+border : Bool -> Css.Style
+border solved =
+    Css.border3 (Css.px 4) Css.solid <|
+        if solved then
+            theme.green
+
+        else
+            theme.red
 
 
 view : Model -> Html Msg
-view model =
-    div [ class "container" ]
-        [ canvas <|
-            List.concat
-                [ renderLinks model.nodes model.links
-                , renderNodes model.nodes
-                ]
+view { nodes, links, solved } =
+    div
+        [ css
+            [ Css.height <| Css.vh 100
+            , Css.displayFlex
+            , Css.justifyContent Css.center
+            , Css.alignItems Css.center
+            ]
         ]
+        [ div
+            [ css
+                [ border solved
+                , Css.boxSizing Css.borderBox
+                , Css.backgroundColor theme.field
+                ]
+            ]
+            [ canvas
+                [ renderLinks nodes links
+                , renderNodes nodes
+                ]
+            ]
+        ]
+
+
+document : Model -> Browser.Document Msg
+document model =
+    Browser.Document "Leylines" <|
+        List.map toUnstyled
+            [ Css.Global.global
+                [ Css.Global.body
+                    [ Css.backgroundColor theme.background ]
+                ]
+            , view model
+            ]
