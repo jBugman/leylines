@@ -377,12 +377,20 @@ renderLinks nodes links =
         |> (\ls -> [ renderLinkType clearColor nodes ls ])
 
 
+background : Renderable
+background =
+    Canvas.shapes
+        [ Canvas.Settings.fill <| Color.rgb255 0xF5 0xF5 0xF5 ]
+        [ Canvas.rect ( 0, 0 ) (toFloat width) (toFloat height) ]
+
+
 canvas : List Renderable -> Html Msg
 canvas =
-    Canvas.toHtml ( width, height )
-        [ class "canvas"
-        , onClick (.offsetPos >> Click)
-        ]
+    (::) background
+        >> Canvas.toHtml ( width, height )
+            [ class "canvas"
+            , onClick (.offsetPos >> Click)
+            ]
 
 
 view : Model -> Html Msg
