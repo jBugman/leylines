@@ -10,8 +10,10 @@ import Dict exposing (Dict)
 import Html exposing (Html, div)
 import Html.Attributes exposing (class)
 import Html.Events.Extra.Mouse exposing (onClick)
+import LineSegment2d exposing (fromEndpoints, intersectionPoint)
 import List.Extra exposing (find, groupsOf, groupsOfWithStep)
-import Maybe.Extra exposing (unpack)
+import Maybe.Extra exposing (isJust, unpack)
+import Point2d exposing (Point2d, coordinates)
 import Random
 import Random.List
 
@@ -40,15 +42,20 @@ newLink nodes =
     Link nodes True
 
 
+setClear : Link -> Bool -> Link
+setClear link clear =
+    { link | clear = clear }
+
+
 type alias Node =
     { id : NodeID
-    , point : Point
+    , point : Point2d
     , clear : Bool
     , active : Bool
     }
 
 
-newNode : NodeID -> Point -> Node
+newNode : NodeID -> Point2d -> Node
 newNode id point =
     Node id point True False
 
@@ -65,11 +72,6 @@ type alias Model =
     { nodes : Nodes
     , links : Links
     }
-
-
-setNodes : Model -> Nodes -> Model
-setNodes model nodes =
-    { model | nodes = nodes }
 
 
 init : () -> ( Model, Cmd Msg )
@@ -105,16 +107,17 @@ randomCoord range =
     Random.float (range - offset) (range + offset)
 
 
-randomPoint : Random.Generator Point
+randomPoint : Random.Generator Point2d
 randomPoint =
     let
         randomCoordInside size =
             size // 2 |> toFloat |> randomCoord
     in
     Random.pair (randomCoordInside width) (randomCoordInside height)
+        |> Random.map Point2d.fromCoordinates
 
 
-randomPoints : Random.Generator (List Point)
+randomPoints : Random.Generator (List Point2d)
 randomPoints =
     Random.list nodeCount randomPoint
 
@@ -201,7 +204,7 @@ nodePair ( i, j ) nodes =
             Maybe.map2 Tuple.pair (nodeAt i) (nodeAt j)
 
         neverNode =
-            newNode -1 ( 0, 0 )
+            newNode -1 Point2d.origin
     in
     maybePair |> unwrap "invalid node IDs provided" ( neverNode, neverNode )
 
@@ -211,7 +214,7 @@ nodePair ( i, j ) nodes =
 
 
 type alias InitialState =
-    ( List Point, Links )
+    ( List Point2d, Links )
 
 
 type Msg
@@ -223,21 +226,26 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Init ( points, links ) ->
-            ( { model
-                | nodes = fromPoints points
-                , links = log "links" links
-              }
+            ( updateModel model links (fromPoints points)
             , Cmd.none
             )
 
         Click point ->
             ( point
+                |> Point2d.fromCoordinates
                 |> nodeInRadius model
-                |> log "click"
                 |> handleClick model
-                |> setNodes model
+                |> updateModel model model.links
             , Cmd.none
             )
+
+
+updateModel : Model -> Links -> Nodes -> Model
+updateModel model links nodes =
+    { model
+        | nodes = nodes
+        , links = calculateCrossing nodes links
+    }
 
 
 handleClick : Model -> Maybe NodeID -> Nodes
@@ -287,13 +295,48 @@ swapNodes i j nodes =
         |> Dict.insert b.id { b | point = a.point }
 
 
-fromPoints : List Point -> Nodes
+calculateCrossing : Nodes -> Links -> Links
+calculateCrossing nodeDict links =
+    let
+        shareVertex l1 l2 =
+            let
+                ( v11, v12 ) =
+                    l1.vertices
+
+                ( v21, v22 ) =
+                    l2.vertices
+            in
+            v11 == v21 || v11 == v22 || v12 == v21 || v12 == v22
+
+        otherLinks link =
+            List.filter (shareVertex link >> not) links
+
+        segment =
+            fromEndpoints << linkPoints nodeDict
+
+        crosses l1 l2 =
+            isJust <| intersectionPoint (segment l1) (segment l2)
+    in
+    links
+        |> List.map
+            (\link ->
+                List.any (crosses link) (otherLinks link)
+                    |> not
+                    |> setClear link
+            )
+
+
+fromPoints : List Point2d -> Nodes
 fromPoints =
     Dict.fromList << List.indexedMap (\id point -> ( id, newNode id point ))
 
 
-nodeInRadius : Model -> Point -> Maybe NodeID
+nodeInRadius : Model -> Point2d -> Maybe NodeID
 nodeInRadius { nodes } target =
+    let
+        inRadius a b =
+            Point2d.distanceFrom a b <= radius
+    in
     nodes |> findNodeID (.point >> inRadius target)
 
 
@@ -307,28 +350,20 @@ findNodeID predicate =
     Dict.values >> find predicate >> Maybe.map .id
 
 
-inRadius : Point -> Point -> Bool
-inRadius a b =
-    distance a b <= radius
-
-
-distance : Point -> Point -> Float
-distance ( x1, y1 ) ( x2, y2 ) =
-    sqrt <| (x2 - x1) ^ 2 + (y2 - y1) ^ 2
-
-
 
 -- VIEW
 
 
-dot : Point -> Canvas.Shape
+dot : Point2d -> Canvas.Shape
 dot point =
-    Canvas.circle point radius
+    Canvas.circle (coordinates point) radius
 
 
-line : ( Point, Point ) -> Canvas.Shape
+line : ( Point2d, Point2d ) -> Canvas.Shape
 line ( p1, p2 ) =
-    Canvas.path p1 [ Canvas.lineTo p2 ]
+    Canvas.path
+        (coordinates p1)
+        [ Canvas.lineTo (coordinates p2) ]
 
 
 renderNodeType : List Node -> Color -> Renderable
@@ -355,7 +390,7 @@ renderNodes nodes =
            )
 
 
-linkPoints : Nodes -> Link -> ( Point, Point )
+linkPoints : Nodes -> Link -> ( Point2d, Point2d )
 linkPoints nodes { vertices } =
     nodePair vertices nodes
         |> Tuple.mapBoth .point .point
