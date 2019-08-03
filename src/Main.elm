@@ -30,7 +30,14 @@ type alias NodeID =
 
 
 type alias Link =
-    ( NodeID, NodeID )
+    { vertices : ( NodeID, NodeID )
+    , clear : Bool
+    }
+
+
+newLink : ( NodeID, NodeID ) -> Link
+newLink nodes =
+    Link nodes True
 
 
 type alias Node =
@@ -123,7 +130,7 @@ linkTriangle : List NodeID -> List Link
 linkTriangle ids =
     (ids ++ List.take 1 ids)
         |> groupsOfWithStep 2 1
-        |> List.map toTuple
+        |> List.map (toTuple >> newLink)
 
 
 randomLinks : Random.Generator Links
@@ -147,7 +154,7 @@ maybeTuple list =
             Nothing
 
 
-toTuple : List NodeID -> Link
+toTuple : List NodeID -> ( NodeID, NodeID )
 toTuple =
     maybeTuple >> unwrap "Attempting to construct tuple not from a [,]" ( -1, -1 )
 
@@ -197,11 +204,6 @@ nodePair ( i, j ) nodes =
             newNode -1 ( 0, 0 )
     in
     maybePair |> unwrap "invalid node IDs provided" ( neverNode, neverNode )
-
-
-vertices : Nodes -> Link -> ( Node, Node )
-vertices nodes ( i, j ) =
-    nodePair ( i, j ) nodes
 
 
 
@@ -353,10 +355,16 @@ renderNodes nodes =
            )
 
 
+linkPoints : Nodes -> Link -> ( Point, Point )
+linkPoints nodes { vertices } =
+    nodePair vertices nodes
+        |> Tuple.mapBoth .point .point
+
+
 renderLinkType : Color -> Nodes -> Links -> Renderable
 renderLinkType color nodes links =
     links
-        |> List.map (vertices nodes >> Tuple.mapBoth .point .point >> line)
+        |> List.map (linkPoints nodes >> line)
         |> Canvas.shapes
             [ Canvas.Settings.stroke color
             , Canvas.Settings.Line.lineWidth 3
@@ -366,8 +374,12 @@ renderLinkType color nodes links =
 renderLinks : Nodes -> Links -> List Renderable
 renderLinks nodes links =
     links
-        -- TODO: link crossing
-        |> (\ls -> [ renderLinkType clearColor nodes ls ])
+        |> List.partition .clear
+        |> (\( clear, rest ) ->
+                [ renderLinkType clearColor nodes clear
+                , renderLinkType crossedColor nodes rest
+                ]
+           )
 
 
 background : Renderable
