@@ -9,7 +9,10 @@ import Dict exposing (Dict)
 import Html exposing (Html, div)
 import Html.Attributes exposing (class)
 import Html.Events.Extra.Mouse exposing (onClick)
+import List.Extra exposing (groupsOf)
+import Maybe.Extra exposing (isJust)
 import Random
+import Random.List
 
 
 main : Program () Model Msg
@@ -46,9 +49,13 @@ type alias Nodes =
     Dict NodeID Node
 
 
+type alias Links =
+    List Link
+
+
 type alias Model =
     { nodes : Nodes
-    , links : List Link
+    , links : Links
     }
 
 
@@ -62,7 +69,7 @@ init _ =
     ( { nodes = Dict.empty
       , links = []
       }
-    , Random.generate Init randomPoints
+    , Random.generate Init randomState
     )
 
 
@@ -104,6 +111,40 @@ randomPoints =
     Random.list nodeCount randomPoint
 
 
+randomLinks : Random.Generator Links
+randomLinks =
+    List.range 0 (nodeCount - 1)
+        |> Random.List.shuffle
+        |> Random.map
+            (groupsOf 2
+                >> List.map toTuple
+                >> List.filter isJust
+                >> List.map (Maybe.withDefault neverLink)
+            )
+
+
+randomState : Random.Generator InitialState
+randomState =
+    Random.pair randomPoints randomLinks
+
+
+{-| This should never be produced
+-}
+neverLink : Link
+neverLink =
+    ( -1, -1 )
+
+
+toTuple : List a -> Maybe ( a, a )
+toTuple list =
+    case list of
+        [ x, y ] ->
+            Just ( x, y )
+
+        _ ->
+            Nothing
+
+
 radius : Float
 radius =
     10
@@ -119,27 +160,37 @@ height =
     480
 
 
+triangleCount : Int
+triangleCount =
+    3
+
+
 nodeCount : Int
 nodeCount =
-    5
+    3 * triangleCount
 
 
 
 -- UPDATE
 
 
+type alias InitialState =
+    ( List Point, Links )
+
+
 type Msg
-    = Init (List Point)
+    = Init InitialState
     | Click Point
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        Init points ->
-            ( points
-                |> fromPoints
-                |> setNodes model
+        Init ( points, links ) ->
+            ( { model
+                | nodes = fromPoints points
+                , links = log "links" links
+              }
             , Cmd.none
             )
 
@@ -204,10 +255,6 @@ swapNodes i j nodes =
             nodes
                 |> Dict.insert a.id { a | point = b.point }
                 |> Dict.insert b.id { b | point = a.point }
-
-
-
--- Dict.update
 
 
 fromPoints : List Point -> Nodes
