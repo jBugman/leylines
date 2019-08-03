@@ -10,8 +10,8 @@ import Dict exposing (Dict)
 import Html exposing (Html, div)
 import Html.Attributes exposing (class)
 import Html.Events.Extra.Mouse exposing (onClick)
-import List.Extra exposing (groupsOf)
-import Maybe.Extra exposing (isJust)
+import List.Extra exposing (find, groupsOf, groupsOfWithStep)
+import Maybe.Extra exposing (unpack)
 import Random
 import Random.List
 
@@ -112,16 +112,24 @@ randomPoints =
     Random.list nodeCount randomPoint
 
 
-randomLinks : Random.Generator Links
-randomLinks =
+randomTriangles : Random.Generator (List (List NodeID))
+randomTriangles =
     List.range 0 (nodeCount - 1)
         |> Random.List.shuffle
-        |> Random.map
-            (groupsOf 2
-                >> List.map toTuple
-                >> List.filter isJust
-                >> List.map (Maybe.withDefault neverLink)
-            )
+        |> Random.map (groupsOf 3)
+
+
+linkTriangle : List NodeID -> List Link
+linkTriangle ids =
+    (ids ++ List.take 1 ids)
+        |> groupsOfWithStep 2 1
+        |> List.map toTuple
+
+
+randomLinks : Random.Generator Links
+randomLinks =
+    randomTriangles
+        |> Random.map (List.map linkTriangle >> List.concat)
 
 
 randomState : Random.Generator InitialState
@@ -129,28 +137,26 @@ randomState =
     Random.pair randomPoints randomLinks
 
 
-{-| This should never be produced
--}
-neverLink : Link
-neverLink =
-    ( -1, -1 )
-
-
-{-| This should never be produced
--}
-neverNode : Node
-neverNode =
-    newNode -1 ( 0, 0 )
-
-
-toTuple : List a -> Maybe ( a, a )
-toTuple list =
+maybeTuple : List a -> Maybe ( a, a )
+maybeTuple list =
     case list of
         [ x, y ] ->
             Just ( x, y )
 
         _ ->
             Nothing
+
+
+toTuple : List NodeID -> Link
+toTuple =
+    maybeTuple >> unwrap "Attempting to construct tuple not from a [,]" ( -1, -1 )
+
+
+unwrap : String -> a -> Maybe a -> a
+unwrap err default =
+    unpack
+        (\_ -> log err default)
+        identity
 
 
 radius : Float
@@ -178,28 +184,24 @@ nodeCount =
     3 * triangleCount
 
 
-nodePair : ( NodeID, NodeID ) -> Nodes -> Result String ( Node, Node )
+nodePair : ( NodeID, NodeID ) -> Nodes -> ( Node, Node )
 nodePair ( i, j ) nodes =
     let
         nodeAt id =
             Dict.get id nodes
-    in
-    case Maybe.map2 Tuple.pair (nodeAt i) (nodeAt j) of
-        Just p ->
-            Ok p
 
-        Nothing ->
-            Err "invalid node IDs provided"
+        maybePair =
+            Maybe.map2 Tuple.pair (nodeAt i) (nodeAt j)
+
+        neverNode =
+            newNode -1 ( 0, 0 )
+    in
+    maybePair |> unwrap "invalid node IDs provided" ( neverNode, neverNode )
 
 
 vertices : Nodes -> Link -> ( Node, Node )
 vertices nodes ( i, j ) =
-    case nodePair ( i, j ) nodes of
-        Err err ->
-            log err ( neverNode, neverNode )
-
-        Ok ( a, b ) ->
-            ( a, b )
+    nodePair ( i, j ) nodes
 
 
 
@@ -274,15 +276,13 @@ markActive nodes id =
 
 swapNodes : NodeID -> NodeID -> Nodes -> Nodes
 swapNodes i j nodes =
-    case nodePair ( i, j ) nodes of
-        -- This should't be the case but fallback to doint nothing in this case
-        Err err ->
-            log err nodes
-
-        Ok ( a, b ) ->
-            nodes
-                |> Dict.insert a.id { a | point = b.point }
-                |> Dict.insert b.id { b | point = a.point }
+    let
+        ( a, b ) =
+            nodePair ( i, j ) nodes
+    in
+    nodes
+        |> Dict.insert a.id { a | point = b.point }
+        |> Dict.insert b.id { b | point = a.point }
 
 
 fromPoints : List Point -> Nodes
@@ -292,24 +292,17 @@ fromPoints =
 
 nodeInRadius : Model -> Point -> Maybe NodeID
 nodeInRadius { nodes } target =
-    nodes |> findNode1 "nearby nodes" (.point >> inRadius target)
+    nodes |> findNodeID (.point >> inRadius target)
 
 
 activeNode : Nodes -> Maybe NodeID
 activeNode =
-    findNode1 "active nodes" .active
+    findNodeID .active
 
 
-{-| Same as findNode but with debug print
--}
-findNode1 : String -> (Node -> Bool) -> Nodes -> Maybe NodeID
-findNode1 msg predicate =
-    Dict.values >> List.filter predicate >> log msg >> List.head >> Maybe.map .id
-
-
-findNode : (Node -> Bool) -> Nodes -> Maybe NodeID
-findNode predicate =
-    Dict.values >> List.filter predicate >> List.head >> Maybe.map .id
+findNodeID : (Node -> Bool) -> Nodes -> Maybe NodeID
+findNodeID predicate =
+    Dict.values >> find predicate >> Maybe.map .id
 
 
 inRadius : Point -> Point -> Bool
