@@ -88,23 +88,14 @@ init _ =
     )
 
 
-randomCoord : Float -> Random.Generator Float
-randomCoord range =
+randomPoint : Random.Generator Point2d
+randomPoint =
     let
         padding =
             30
 
-        offset =
-            toFloat <| min width height // 2 - padding
-    in
-    Random.float (range - offset) (range + offset)
-
-
-randomPoint : Random.Generator Point2d
-randomPoint =
-    let
-        randomCoordInside size =
-            size // 2 |> toFloat |> randomCoord
+        randomCoordInside dimension =
+            Random.float padding (toFloat dimension - padding)
     in
     Random.pair (randomCoordInside width) (randomCoordInside height)
         |> Random.map Point2d.fromCoordinates
@@ -164,7 +155,7 @@ unwrap err default =
 
 radius : Float
 radius =
-    10
+    8
 
 
 width : Int
