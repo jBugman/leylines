@@ -26,7 +26,7 @@ type alias NodeID =
 
 
 type alias Link =
-    ( Int, Int )
+    ( NodeID, NodeID )
 
 
 type alias Node =
@@ -43,7 +43,7 @@ newNode id point =
 
 
 type alias Nodes =
-    Dict Int Node
+    Dict NodeID Node
 
 
 type alias Model =
@@ -137,27 +137,42 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Init points ->
-            ( setNodes model <| fromPoints points
+            ( points
+                |> fromPoints
+                |> setNodes model
             , Cmd.none
             )
 
         Click point ->
-            ( nodeAt model.nodes point
+            ( point
+                |> nodeInRadius model
                 |> log "click"
-                |> handleNodeClick model.nodes
+                |> handleClick model
                 |> setNodes model
             , Cmd.none
             )
 
 
-handleNodeClick : Nodes -> Maybe NodeID -> Nodes
-handleNodeClick nodes maybeID =
+handleClick : Model -> Maybe NodeID -> Nodes
+handleClick { nodes } maybeID =
     case maybeID of
         Just id ->
-            markActive nodes id
+            handleNodeClick nodes id
 
         Nothing ->
             unmarkActive nodes
+
+
+handleNodeClick : Nodes -> NodeID -> Nodes
+handleNodeClick nodes id =
+    case activeNode nodes of
+        Nothing ->
+            markActive nodes id
+
+        Just activeID ->
+            nodes
+                |> swapNodes id activeID
+                |> unmarkActive
 
 
 unmarkActive : Nodes -> Nodes
@@ -174,6 +189,27 @@ markActive nodes id =
     Dict.update id updater nodes
 
 
+swapNodes : NodeID -> NodeID -> Nodes -> Nodes
+swapNodes i j nodes =
+    let
+        nodeAt id =
+            Dict.get id nodes
+    in
+    case Maybe.map2 Tuple.pair (nodeAt i) (nodeAt j) of
+        -- This should't be the case but follback to doint nothing in this case
+        Nothing ->
+            nodes
+
+        Just ( a, b ) ->
+            nodes
+                |> Dict.insert a.id { a | point = b.point }
+                |> Dict.insert b.id { b | point = a.point }
+
+
+
+-- Dict.update
+
+
 fromPoints : List Point -> Nodes
 fromPoints points =
     points
@@ -181,15 +217,26 @@ fromPoints points =
         |> Dict.fromList
 
 
-nodeAt : Nodes -> Point -> Maybe NodeID
-nodeAt nodes target =
-    nodes
-        |> Dict.values
-        |> List.filter (.point >> inRadius target)
-        |> log "nearby nodes"
-        -- this picks one at random it there are multiple at this point
-        |> List.head
-        |> Maybe.map .id
+nodeInRadius : Model -> Point -> Maybe NodeID
+nodeInRadius { nodes } target =
+    nodes |> findNode1 "nearby nodes" (.point >> inRadius target)
+
+
+activeNode : Nodes -> Maybe NodeID
+activeNode nodes =
+    nodes |> findNode1 "active nodes" .active
+
+
+{-| Same as findNode but with debug print
+-}
+findNode1 : String -> (Node -> Bool) -> Nodes -> Maybe NodeID
+findNode1 msg predicate =
+    Dict.values >> List.filter predicate >> log msg >> List.head >> Maybe.map .id
+
+
+findNode : (Node -> Bool) -> Nodes -> Maybe NodeID
+findNode predicate =
+    Dict.values >> List.filter predicate >> List.head >> Maybe.map .id
 
 
 inRadius : Point -> Point -> Bool
