@@ -211,10 +211,8 @@ swapNodes i j nodes =
 
 
 fromPoints : List Point -> Nodes
-fromPoints points =
-    points
-        |> List.indexedMap (\id point -> ( id, newNode id point ))
-        |> Dict.fromList
+fromPoints =
+    Dict.fromList << List.indexedMap (\id point -> ( id, newNode id point ))
 
 
 nodeInRadius : Model -> Point -> Maybe NodeID
@@ -223,8 +221,8 @@ nodeInRadius { nodes } target =
 
 
 activeNode : Nodes -> Maybe NodeID
-activeNode nodes =
-    nodes |> findNode1 "active nodes" .active
+activeNode =
+    findNode1 "active nodes" .active
 
 
 {-| Same as findNode but with debug print
