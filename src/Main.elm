@@ -7,7 +7,6 @@ import Canvas.Settings.Line exposing (lineWidth)
 import Color exposing (Color)
 import Css exposing (hex)
 import Css.Global
-import Debug exposing (log)
 import Dict exposing (Dict)
 import Html.Events.Extra.Mouse exposing (onClick)
 import Html.Styled exposing (Html, div, fromUnstyled, toUnstyled)
@@ -163,10 +162,8 @@ toTuple =
 
 
 unwrap : String -> a -> Maybe a -> a
-unwrap err default =
-    unpack
-        (\_ -> log err default)
-        identity
+unwrap _ default =
+    unpack (\_ -> default) identity
 
 
 radius : Float
