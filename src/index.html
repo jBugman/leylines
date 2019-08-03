@@ -10,8 +10,10 @@
   <body>
     <div id="root"></div>
     <script>
-      var app = Elm.Main.init({
-        node: document.getElementById("root")
+      const params = new URLSearchParams(location.search);
+      const app = Elm.Main.init({
+        node: document.getElementById("root"),
+        flags: params.get("n")
       });
     </script>
   </body>

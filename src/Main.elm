@@ -21,7 +21,7 @@ import Random
 import Random.List
 
 
-main : Program () Model Msg
+main : Program Flags Model Msg
 main =
     Browser.document { init = init, update = update, view = document, subscriptions = \_ -> Sub.none }
 
@@ -78,14 +78,26 @@ type alias Model =
     }
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
+type alias Flags =
+    Maybe String
+
+
+init : Flags -> ( Model, Cmd Msg )
+init flag =
     ( { nodes = Dict.empty
       , links = []
       , solved = False
       }
-    , Random.generate Init randomState
+    , Random.generate Init <| randomState <| triangleCount flag
     )
+
+
+triangleCount : Maybe String -> Int
+triangleCount s =
+    s
+        |> Maybe.andThen String.toInt
+        |> Maybe.withDefault 8
+        |> max 4
 
 
 randomPoint : Random.Generator Point2d
@@ -101,13 +113,13 @@ randomPoint =
         |> Random.map Point2d.fromCoordinates
 
 
-randomPoints : Random.Generator (List Point2d)
-randomPoints =
+randomPoints : Int -> Random.Generator (List Point2d)
+randomPoints nodeCount =
     Random.list nodeCount randomPoint
 
 
-randomTriangles : Random.Generator (List (List NodeID))
-randomTriangles =
+randomTriangles : Int -> Random.Generator (List (List NodeID))
+randomTriangles nodeCount =
     List.range 0 (nodeCount - 1)
         |> Random.List.shuffle
         |> Random.map (groupsOf 3)
@@ -120,15 +132,19 @@ linkTriangle ids =
         |> map (toTuple >> newLink)
 
 
-randomLinks : Random.Generator Links
-randomLinks =
-    randomTriangles
+randomLinks : Int -> Random.Generator Links
+randomLinks nodeCount =
+    randomTriangles nodeCount
         |> Random.map (map linkTriangle >> concat)
 
 
-randomState : Random.Generator InitialState
-randomState =
-    Random.pair randomPoints randomLinks
+randomState : Int -> Random.Generator InitialState
+randomState shapeCount =
+    let
+        nodeCount =
+            3 * shapeCount
+    in
+    Random.pair (randomPoints nodeCount) (randomLinks nodeCount)
 
 
 maybeTuple : List a -> Maybe ( a, a )
@@ -166,16 +182,6 @@ width =
 height : Int
 height =
     480
-
-
-triangleCount : Int
-triangleCount =
-    3
-
-
-nodeCount : Int
-nodeCount =
-    3 * triangleCount
 
 
 nodePair : ( NodeID, NodeID ) -> Nodes -> ( Node, Node )
