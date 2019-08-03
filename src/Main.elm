@@ -3,6 +3,7 @@ module Main exposing (main)
 import Browser
 import Canvas exposing (Point, Renderable)
 import Canvas.Settings
+import Canvas.Settings.Line
 import Color exposing (Color)
 import Debug exposing (log)
 import Dict exposing (Dict)
@@ -135,6 +136,13 @@ neverLink =
     ( -1, -1 )
 
 
+{-| This should never be produced
+-}
+neverNode : Node
+neverNode =
+    newNode -1 ( 0, 0 )
+
+
 toTuple : List a -> Maybe ( a, a )
 toTuple list =
     case list of
@@ -168,6 +176,30 @@ triangleCount =
 nodeCount : Int
 nodeCount =
     3 * triangleCount
+
+
+nodePair : ( NodeID, NodeID ) -> Nodes -> Result String ( Node, Node )
+nodePair ( i, j ) nodes =
+    let
+        nodeAt id =
+            Dict.get id nodes
+    in
+    case Maybe.map2 Tuple.pair (nodeAt i) (nodeAt j) of
+        Just p ->
+            Ok p
+
+        Nothing ->
+            Err "invalid node IDs provided"
+
+
+vertices : Nodes -> Link -> ( Node, Node )
+vertices nodes ( i, j ) =
+    case nodePair ( i, j ) nodes of
+        Err err ->
+            log err ( neverNode, neverNode )
+
+        Ok ( a, b ) ->
+            ( a, b )
 
 
 
@@ -242,16 +274,12 @@ markActive nodes id =
 
 swapNodes : NodeID -> NodeID -> Nodes -> Nodes
 swapNodes i j nodes =
-    let
-        nodeAt id =
-            Dict.get id nodes
-    in
-    case Maybe.map2 Tuple.pair (nodeAt i) (nodeAt j) of
-        -- This should't be the case but follback to doint nothing in this case
-        Nothing ->
-            nodes
+    case nodePair ( i, j ) nodes of
+        -- This should't be the case but fallback to doint nothing in this case
+        Err err ->
+            log err nodes
 
-        Just ( a, b ) ->
+        Ok ( a, b ) ->
             nodes
                 |> Dict.insert a.id { a | point = b.point }
                 |> Dict.insert b.id { b | point = a.point }
@@ -298,13 +326,14 @@ distance ( x1, y1 ) ( x2, y2 ) =
 -- VIEW
 
 
-type alias Dot =
-    Canvas.Shape
-
-
-dot : Point -> Dot
+dot : Point -> Canvas.Shape
 dot point =
     Canvas.circle point radius
+
+
+line : ( Point, Point ) -> Canvas.Shape
+line ( p1, p2 ) =
+    Canvas.path p1 [ Canvas.lineTo p2 ]
 
 
 renderNodeType : List Node -> Color -> Renderable
@@ -331,6 +360,23 @@ renderNodes nodes =
            )
 
 
+renderLinkType : Color -> Nodes -> Links -> Renderable
+renderLinkType color nodes links =
+    links
+        |> List.map (vertices nodes >> Tuple.mapBoth .point .point >> line)
+        |> Canvas.shapes
+            [ Canvas.Settings.stroke color
+            , Canvas.Settings.Line.lineWidth 3
+            ]
+
+
+renderLinks : Nodes -> Links -> List Renderable
+renderLinks nodes links =
+    links
+        -- TODO: link crossing
+        |> (\ls -> [ renderLinkType clearColor nodes ls ])
+
+
 canvas : List Renderable -> Html Msg
 canvas =
     Canvas.toHtml ( width, height )
@@ -344,6 +390,7 @@ view model =
     div [ class "container" ]
         [ canvas <|
             List.concat
-                [ renderNodes model.nodes
+                [ renderLinks model.nodes model.links
+                , renderNodes model.nodes
                 ]
         ]
