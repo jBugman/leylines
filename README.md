@@ -2,7 +2,7 @@
 
     yarn global add elm elm-format elm-analyse elm-live
 
-    elm-live src/Main.elm --start-page=static/index.html --port=3000 -- --output=static/main.js
+    elm-live src/Main.elm --dir=static --port=3000 -- --output=static/main.js
 
 ## Production build
 
